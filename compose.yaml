@@ -98,6 +98,27 @@ services:
     ports:
       - "127.0.0.1:9090:9090"
 
+  # ---------- Visualisation et alertes ----------
+  grafana:
+    image: grafana/grafana:13.2.5
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD manquant dans .env}
+      GF_SERVER_ROOT_URL: http://localhost:3000
+      GF_USERS_DEFAULT_LANGUAGE: fr-FR
+      GF_USERS_DEFAULT_THEME: light
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/supervision-serveurs.json
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_NEWS_NEWS_FEED_ENABLED: "false"
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    ports:
+      - "127.0.0.1:3000:3000"
+    depends_on:
+      - prometheus
+
 volumes:
   # Partitions /data des serveurs : volumes tmpfs de taille fixe. Quand l'un est plein,
   # les écritures échouent (ENOSPC) comme sur un vrai disque.
@@ -108,3 +129,4 @@ volumes:
   data-cache:
     driver_opts: { type: tmpfs, device: tmpfs, o: "size=256m" }
   prometheus-data:
+  grafana-data:

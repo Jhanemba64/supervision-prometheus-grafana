@@ -1,0 +1,314 @@
+{
+  "uid": "supervision-serveurs",
+  "title": "Supervision des serveurs critiques",
+  "description": "CPU, espace disque et disponibilité des services critiques (Prometheus)",
+  "tags": ["supervision", "prometheus", "serveurs"],
+  "editable": true,
+  "graphTooltip": 1,
+  "refresh": "5s",
+  "schemaVersion": 41,
+  "time": { "from": "now-15m", "to": "now" },
+  "timezone": "browser",
+  "templating": {
+    "list": [
+      {
+        "name": "serveur",
+        "label": "Serveur",
+        "type": "query",
+        "datasource": { "type": "prometheus", "uid": "prometheus" },
+        "definition": "label_values(server:cpu_usage:percent, server)",
+        "query": { "query": "label_values(server:cpu_usage:percent, server)", "refId": "serveur" },
+        "includeAll": true,
+        "multi": true,
+        "current": { "text": ["All"], "value": ["$__all"] },
+        "refresh": 2,
+        "sort": 1
+      }
+    ]
+  },
+  "panels": [
+    { "id": 1, "type": "row", "title": "Vue d'ensemble", "collapsed": false, "gridPos": { "x": 0, "y": 0, "w": 24, "h": 1 }, "panels": [] },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Services hors ligne",
+      "description": "Nombre de services critiques dont la sonde échoue. Doit rester à 0.",
+      "gridPos": { "x": 0, "y": 1, "w": 5, "h": 7 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "refId": "A", "expr": "count(probe_success{server=~\"$serveur\"} == 0) or vector(0)", "instant": true }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "color": { "mode": "thresholds" },
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 1 }] }
+        },
+        "overrides": []
+      },
+      "options": { "colorMode": "background", "graphMode": "none", "justifyMode": "center", "textMode": "value", "orientation": "auto", "wideLayout": true, "showPercentChange": false, "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false } }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Surcharge CPU (> 85 %)",
+      "description": "Nombre de serveurs dont l'utilisation CPU dépasse le seuil critique.",
+      "gridPos": { "x": 5, "y": 1, "w": 5, "h": 7 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "refId": "A", "expr": "count(server:cpu_usage:percent{server=~\"$serveur\"} > 85) or vector(0)", "instant": true }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "color": { "mode": "thresholds" },
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 1 }] }
+        },
+        "overrides": []
+      },
+      "options": { "colorMode": "background", "graphMode": "none", "justifyMode": "center", "textMode": "value", "orientation": "auto", "wideLayout": true, "showPercentChange": false, "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false } }
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Disques critiques (> 90 %)",
+      "description": "Nombre de partitions remplies à plus de 90 % (moins de 10 % d'espace libre).",
+      "gridPos": { "x": 10, "y": 1, "w": 5, "h": 7 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "refId": "A", "expr": "count(server:disk_usage:percent{server=~\"$serveur\"} > 90) or vector(0)", "instant": true }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "color": { "mode": "thresholds" },
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 1 }] }
+        },
+        "overrides": []
+      },
+      "options": { "colorMode": "background", "graphMode": "none", "justifyMode": "center", "textMode": "value", "orientation": "auto", "wideLayout": true, "showPercentChange": false, "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false } }
+    },
+    {
+      "id": 5,
+      "type": "alertlist",
+      "title": "Alertes en cours",
+      "description": "Règles d'alerte Grafana en attente (Pending) ou déclenchées (Firing).",
+      "gridPos": { "x": 15, "y": 1, "w": 9, "h": 7 },
+      "options": {
+        "viewMode": "list",
+        "groupMode": "default",
+        "groupBy": [],
+        "maxItems": 20,
+        "sortOrder": 1,
+        "dashboardAlerts": false,
+        "alertName": "",
+        "alertInstanceLabelFilter": "",
+        "showInstances": false,
+        "stateFilter": { "firing": true, "pending": true, "noData": true, "normal": false, "error": true }
+      }
+    },
+
+    { "id": 6, "type": "row", "title": "Utilisation CPU (seuils : 70 % avertissement, 85 % critique)", "collapsed": false, "gridPos": { "x": 0, "y": 8, "w": 24, "h": 1 }, "panels": [] },
+    {
+      "id": 7,
+      "type": "bargauge",
+      "title": "CPU actuel par serveur",
+      "description": "Serveurs : % des vCPU alloués (quota cgroup). Hôte Docker : % de tous ses cœurs.",
+      "gridPos": { "x": 0, "y": 9, "w": 8, "h": 9 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "refId": "A", "expr": "server:cpu_usage:percent{server=~\"$serveur\"}", "legendFormat": "{{server}}", "instant": true }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "decimals": 1,
+          "min": 0,
+          "max": 100,
+          "color": { "mode": "thresholds" },
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 70 }, { "color": "red", "value": 85 }] }
+        },
+        "overrides": []
+      },
+      "options": { "displayMode": "gradient", "orientation": "horizontal", "showUnfilled": true, "valueMode": "color", "namePlacement": "left", "sizing": "auto", "text": { "titleSize": 15, "valueSize": 18 }, "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false } }
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Historique de l'utilisation CPU (%)",
+      "description": "Zones colorées : vert < 70 %, orange 70-85 %, rouge > 85 %. L'alerte « CPU critique » se déclenche après 1 min au-dessus de 85 %.",
+      "gridPos": { "x": 8, "y": 9, "w": 16, "h": 9 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "refId": "A", "expr": "server:cpu_usage:percent{server=~\"$serveur\"}", "legendFormat": "{{server}}" }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "decimals": 1,
+          "min": 0,
+          "max": 100,
+          "color": { "mode": "palette-classic" },
+          "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 8, "showPoints": "never", "thresholdsStyle": { "mode": "line+area" } },
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "transparent", "value": null }, { "color": "orange", "value": 70 }, { "color": "red", "value": 85 }] }
+        },
+        "overrides": []
+      },
+      "options": { "legend": { "displayMode": "table", "placement": "right", "calcs": ["lastNotNull", "max"] }, "tooltip": { "mode": "multi", "sort": "desc" } }
+    },
+
+    { "id": 9, "type": "row", "title": "Espace disque (seuils : 80 % avertissement, 90 % critique)", "collapsed": false, "gridPos": { "x": 0, "y": 18, "w": 24, "h": 1 }, "panels": [] },
+    {
+      "id": 10,
+      "type": "bargauge",
+      "title": "Occupation des partitions",
+      "description": "Part de la partition utilisée. Au-delà de 90 %, il reste moins de 10 % d'espace libre.",
+      "gridPos": { "x": 0, "y": 19, "w": 8, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "refId": "A", "expr": "server:disk_usage:percent{server=~\"$serveur\"}", "legendFormat": "{{server}} ({{mountpoint}})", "instant": true }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "decimals": 1,
+          "min": 0,
+          "max": 100,
+          "color": { "mode": "thresholds" },
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 80 }, { "color": "red", "value": 90 }] }
+        },
+        "overrides": []
+      },
+      "options": { "displayMode": "gradient", "orientation": "horizontal", "showUnfilled": true, "valueMode": "color", "namePlacement": "left", "sizing": "auto", "text": { "titleSize": 15, "valueSize": 18 }, "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false } }
+    },
+    {
+      "id": 11,
+      "type": "table",
+      "title": "Détail des partitions",
+      "description": "Tableau triable : cliquer sur un en-tête de colonne pour changer le tri.",
+      "gridPos": { "x": 8, "y": 19, "w": 16, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "refId": "A", "expr": "max by (server, mountpoint) (node_filesystem_size_bytes{job=~\"node-.+\", server=~\"$serveur\", mountpoint=~\"/data|/var/lib\"})", "format": "table", "instant": true },
+        { "refId": "B", "expr": "max by (server, mountpoint) (node_filesystem_avail_bytes{job=~\"node-.+\", server=~\"$serveur\", mountpoint=~\"/data|/var/lib\"})", "format": "table", "instant": true },
+        { "refId": "C", "expr": "max by (server, mountpoint) (server:disk_usage:percent{server=~\"$serveur\"})", "format": "table", "instant": true }
+      ],
+      "transformations": [
+        { "id": "merge", "options": {} },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": { "Time": true },
+            "indexByName": { "server": 0, "mountpoint": 1, "Value #A": 2, "Value #B": 3, "Value #C": 4 },
+            "renameByName": { "server": "Serveur", "mountpoint": "Partition", "Value #A": "Taille", "Value #B": "Espace libre", "Value #C": "Utilisé" }
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "custom": { "align": "auto", "cellOptions": { "type": "auto" } } },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "Taille" }, "properties": [{ "id": "unit", "value": "bytes" }] },
+          { "matcher": { "id": "byName", "options": "Espace libre" }, "properties": [{ "id": "unit", "value": "bytes" }] },
+          {
+            "matcher": { "id": "byName", "options": "Utilisé" },
+            "properties": [
+              { "id": "unit", "value": "percent" },
+              { "id": "decimals", "value": 1 },
+              { "id": "min", "value": 0 },
+              { "id": "max", "value": 100 },
+              { "id": "color", "value": { "mode": "thresholds" } },
+              { "id": "thresholds", "value": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 80 }, { "color": "red", "value": 90 }] } },
+              { "id": "custom.cellOptions", "value": { "type": "gauge", "mode": "gradient", "valueDisplayMode": "text" } }
+            ]
+          }
+        ]
+      },
+      "options": { "showHeader": true, "cellHeight": "sm", "sortBy": [{ "displayName": "Utilisé", "desc": true }] }
+    },
+    {
+      "id": 12,
+      "type": "timeseries",
+      "title": "Évolution de l'occupation des partitions (%)",
+      "description": "Zones colorées : vert < 80 %, orange 80-90 %, rouge > 90 %. L'alerte « Espace disque critique » se déclenche après 1 min au-dessus de 90 %.",
+      "gridPos": { "x": 0, "y": 27, "w": 24, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "refId": "A", "expr": "server:disk_usage:percent{server=~\"$serveur\"}", "legendFormat": "{{server}} ({{mountpoint}})" }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "decimals": 1,
+          "min": 0,
+          "max": 100,
+          "color": { "mode": "palette-classic" },
+          "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 8, "showPoints": "never", "thresholdsStyle": { "mode": "line+area" } },
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "transparent", "value": null }, { "color": "orange", "value": 80 }, { "color": "red", "value": 90 }] }
+        },
+        "overrides": []
+      },
+      "options": { "legend": { "displayMode": "table", "placement": "right", "calcs": ["lastNotNull", "max"] }, "tooltip": { "mode": "multi", "sort": "desc" } }
+    },
+
+    { "id": 13, "type": "row", "title": "Services critiques (alerte immédiate si hors ligne)", "collapsed": false, "gridPos": { "x": 0, "y": 35, "w": 24, "h": 1 }, "panels": [] },
+    {
+      "id": 14,
+      "type": "stat",
+      "title": "État des services",
+      "description": "Sonde blackbox_exporter toutes les 5 s : HTTP 2xx (nginx), connexion TCP (PostgreSQL), PING/PONG (Redis).",
+      "gridPos": { "x": 0, "y": 36, "w": 24, "h": 5 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "refId": "A", "expr": "probe_success{server=~\"$serveur\"}", "legendFormat": "{{service}}", "instant": true }],
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1 }] },
+          "mappings": [{ "type": "value", "options": { "0": { "text": "HORS LIGNE", "color": "red", "index": 1 }, "1": { "text": "EN LIGNE", "color": "green", "index": 0 } } }]
+        },
+        "overrides": []
+      },
+      "options": { "colorMode": "background", "graphMode": "none", "justifyMode": "center", "textMode": "value_and_name", "orientation": "vertical", "wideLayout": true, "showPercentChange": false, "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false } }
+    },
+    {
+      "id": 15,
+      "type": "state-timeline",
+      "title": "Historique de disponibilité",
+      "description": "Chaque bande rouge est une période d'indisponibilité. L'alerte « Service hors ligne » se déclenche dès le premier échec (évaluation toutes les 10 s).",
+      "gridPos": { "x": 0, "y": 41, "w": 24, "h": 6 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "refId": "A", "expr": "probe_success{server=~\"$serveur\"}", "legendFormat": "{{service}}" }],
+      "fieldConfig": {
+        "defaults": {
+          "custom": { "fillOpacity": 85, "lineWidth": 0 },
+          "mappings": [{ "type": "value", "options": { "0": { "text": "HORS LIGNE", "color": "red", "index": 1 }, "1": { "text": "EN LIGNE", "color": "green", "index": 0 } } }]
+        },
+        "overrides": []
+      },
+      "options": { "mergeValues": true, "showValue": "auto", "alignValue": "center", "rowHeight": 0.8, "legend": { "showLegend": true, "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "single" } }
+    },
+    {
+      "id": 16,
+      "type": "table",
+      "title": "Détail des sondes",
+      "description": "Cible sondée, type de sonde, état et temps de réponse de la dernière sonde.",
+      "gridPos": { "x": 0, "y": 47, "w": 24, "h": 6 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "refId": "A", "expr": "max by (service, server, instance, module) (probe_success{server=~\"$serveur\"})", "format": "table", "instant": true },
+        { "refId": "B", "expr": "max by (service, server, instance, module) (probe_duration_seconds{server=~\"$serveur\"})", "format": "table", "instant": true }
+      ],
+      "transformations": [
+        { "id": "merge", "options": {} },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": { "Time": true },
+            "indexByName": { "service": 0, "server": 1, "instance": 2, "module": 3, "Value #A": 4, "Value #B": 5 },
+            "renameByName": { "service": "Service", "server": "Serveur", "instance": "Cible", "module": "Sonde", "Value #A": "État", "Value #B": "Réponse" }
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "custom": { "align": "auto", "cellOptions": { "type": "auto" } } },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "État" },
+            "properties": [
+              { "id": "mappings", "value": [{ "type": "value", "options": { "0": { "text": "HORS LIGNE", "color": "red", "index": 1 }, "1": { "text": "EN LIGNE", "color": "green", "index": 0 } } }] },
+              { "id": "custom.cellOptions", "value": { "type": "color-background", "mode": "basic" } },
+              { "id": "custom.align", "value": "center" }
+            ]
+          },
+          { "matcher": { "id": "byName", "options": "Réponse" }, "properties": [{ "id": "unit", "value": "s" }, { "id": "decimals", "value": 1 }] }
+        ]
+      },
+      "options": { "showHeader": true, "cellHeight": "sm" }
+    }
+  ]
+}
