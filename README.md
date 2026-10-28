@@ -8,6 +8,32 @@ Tout est décrit dans des fichiers versionnés : rien n'est configuré à la mai
 
 ## Architecture
 
+```
+  srv-web-01 (nginx)    srv-db-01 (PostgreSQL)  srv-cache-01 (Redis)   hôte Docker
+  1 vCPU, /data 256 Mo  2 vCPU, /data 512 Mo    0,5 vCPU, /data 256 Mo (docker-host)
+                                           |   métriques et sondes
+                                           v
+  +--------------------------------------------------------------------------------+
+  | EXPORTEURS  cAdvisor ............ CPU de chaque serveur (cgroups)              |
+  |             node_exporter x 3 ... espace disque /data de chaque serveur        |
+  |             node_exporter ....... CPU et disque de l'hôte                      |
+  |             blackbox_exporter ... sondes HTTP, TCP et PING/PONG des services   |
+  +--------------------------------------------------------------------------------+
+                                           |   collecte toutes les 5 s
+                                           v
+  +--------------------------------------------------------------------------------+
+  | PROMETHEUS  stockage + règles d'enregistrement (CPU %, disque %)               |
+  +--------------------------------------------------------------------------------+
+                                           |
+                                           v
+  +--------------------------------------------------------------------------------+
+  | GRAFANA     tableau de bord (seuils, couleurs) + 3 règles d'alerte             |
+  +--------------------------------------------------------------------------------+
+                                           |   notifications FIRING / RESOLVED
+                                           v
+                         alert-receiver (webhook d'astreinte)
+```
+
 Les serveurs sont simulés par des conteneurs. Pour que chacun se comporte comme une machine
 distincte, il reçoit :
 
@@ -26,6 +52,7 @@ distincte, il reçoit :
 | blackbox | `prom/blackbox-exporter:v0.29.1` | Sondes de disponibilité des services |
 | prometheus | `prom/prometheus:v3.15.1` | Collecte toutes les 5 s, règles d'enregistrement, rétention 7 jours |
 | grafana | `grafana/grafana:13.2.5` | Tableau de bord, règles d'alerte, notifications (interface en français) |
+| alert-receiver | `mendhak/http-https-echo:43` | Destinataire des notifications : journalise chaque alerte reçue |
 
 ## Démarrage rapide
 
@@ -36,7 +63,7 @@ plus la place des partitions `/data` si on les remplit (1 Go au maximum). Les po
 ```bash
 cp .env.example .env      # puis choisir les mots de passe Grafana et PostgreSQL
 docker compose up -d
-docker compose ps         # 11 conteneurs "Up"
+docker compose ps         # 12 conteneurs "Up"
 ```
 
 | Interface | Adresse | Accès |
@@ -80,7 +107,33 @@ Côté interactivité :
 - la variable **Serveur** (sélection multiple) filtre tous les panneaux ;
 - le rafraîchissement est automatique toutes les 5 s ;
 - les tableaux se trient d'un clic sur l'en-tête ;
-- chaque panneau a une info-bulle qui explique ce qu'il mesure.
+- chaque panneau a une info-bulle qui explique ce qu'il mesure ;
+- les changements d'état des alertes s'affichent en pointillés sur les courbes.
+
+## Alertes et notifications
+
+Trois règles Grafana sont provisionnées dans `grafana/provisioning/alerting/regles.yml` et évaluées
+toutes les 10 secondes. Chacune est **multidimensionnelle** : elle produit une alerte distincte par
+serveur ou par service, avec un message qui nomme le serveur concerné.
+
+| Règle | Condition | Attente | Message |
+|---|---|---|---|
+| CPU critique | `server:cpu_usage:percent > 85` | 1 min | CPU critique sur *serveur* |
+| Espace disque critique | `server:disk_usage:percent > 90` | 1 min | Espace disque critique sur *serveur* (*partition*) |
+| Service hors ligne | `probe_success < 1` | 0 s | Service hors ligne : *service* sur *serveur* |
+
+Les notifications partent vers le point de contact « Astreinte (webhook) »
+(`grafana/provisioning/alerting/contact-points.yml`). Ici, le conteneur `alert-receiver` les
+reçoit et les journalise. Pour un vrai canal (e-mail, Teams, Slack, PagerDuty), il suffit de
+remplacer ce récepteur. Les alertes sont regroupées par règle et par serveur. Pour le CPU et le
+disque, un groupe notifie au plus toutes les 30 s, pour ne pas inonder l'astreinte. Les services ont
+une route dédiée (attente 1 s, intervalle 10 s) pour être signalés au plus vite.
+
+Pour lire les notifications reçues :
+
+```bash
+docker compose logs -t --no-log-prefix alert-receiver | python outils/webhook.py
+```
 
 ## Calcul des indicateurs
 
@@ -108,12 +161,14 @@ Les sondes de `blackbox/blackbox.yml` vérifient chaque service depuis l'extéri
 | PostgreSQL | `tcp_connect` | Le port 5432 accepte les connexions |
 | Redis | `redis` | Redis répond `+PONG` à un `PING` : le protocole est vérifié, pas seulement le port |
 
-## Pièges rencontrés sous Docker Desktop / WSL2
+## Pièges rencontrés
 
 | Symptôme | Cause | Solution |
 |---|---|---|
 | `node_exporter` de l'hôte ne démarre pas : *path / is mounted on / but it is not a shared or slave mount* | Docker Desktop refuse la propagation `rslave` sur la racine | Monter `/:/host:ro`, sans `rslave` |
 | CPU de l'hôte affiché à 80 % alors que la machine est au repos | Sous WSL2, le temps « idle » des vCPU n'est pas entièrement comptabilisé : la somme des modes ne fait que 8,6 s/s pour 16 vCPU. La formule classique `1 − idle` surestime donc le CPU | Calculer temps actif ÷ temps total compté, une formule qui reste juste même si des compteurs manquent |
 | Disque de l'hôte introuvable sur `/var/lib/docker` | Le disque de données de la VM Docker Desktop est monté sur `/var/lib` | Cibler `/var/lib` |
+| `$labels` vide dans les messages d'alerte provisionnés | Le provisioning Grafana interprète `$labels` comme une variable d'environnement | Écrire `{{ .Labels.server }}` et `{{ .Values.A.Value }}`, sans `$` |
 | La frise de disponibilité affiche « 1+ » au lieu de « EN LIGNE » | Le mode de couleur « seuils » prend le pas sur les correspondances de valeurs | Retirer ce mode : les correspondances portent le texte et la couleur |
+| Notification d'un service reçue 30 à 50 s après la coupure, alors que l'alerte se déclenche en quelques secondes | Grafana ne renvoie pas une alerte à son Alertmanager moins de 30 s après le dernier envoi, y compris l'envoi « résolu ». Un groupe qui vient de notifier attend en plus son `group_interval` | Regroupement par serveur et route dédiée aux services (`group_wait` 1 s, `group_interval` 10 s). Une coupure isolée est notifiée en moins de 10 s ; un service qui retombe juste après une alerte peut encore attendre jusqu'à 30 s |
 | Tableau de bord modifié mais non rechargé | Les fichiers provisionnés depuis un dossier Windows ne sont pas relus à chaud | `docker compose restart grafana` (l'état des alertes est conservé) |

@@ -119,6 +119,12 @@ services:
     depends_on:
       - prometheus
 
+  # Destinataire des notifications (simule l'outil d'astreinte) : journalise chaque alerte reçue
+  alert-receiver:
+    image: mendhak/http-https-echo:43
+    environment:
+      HTTP_PORT: 8080
+
 volumes:
   # Partitions /data des serveurs : volumes tmpfs de taille fixe. Quand l'un est plein,
   # les écritures échouent (ENOSPC) comme sur un vrai disque.
