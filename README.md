@@ -25,26 +25,68 @@ distincte, il reçoit :
 | cadvisor | `ghcr.io/google/cadvisor:v0.60.6` | CPU de chaque serveur, mesuré par cgroup |
 | blackbox | `prom/blackbox-exporter:v0.29.1` | Sondes de disponibilité des services |
 | prometheus | `prom/prometheus:v3.15.1` | Collecte toutes les 5 s, règles d'enregistrement, rétention 7 jours |
+| grafana | `grafana/grafana:13.2.5` | Tableau de bord, règles d'alerte, notifications (interface en français) |
 
 ## Démarrage rapide
 
-**Prérequis** : Docker avec Compose v2. Le port `9090` doit être libre sur `127.0.0.1`.
+**Prérequis** : Docker avec Compose v2 et environ 1,2 Go de RAM libre (dont 900 Mo pour Grafana),
+plus la place des partitions `/data` si on les remplit (1 Go au maximum). Les ports `3000` et
+`9090` doivent être libres sur `127.0.0.1`.
 
 ```bash
-cp .env.example .env      # puis choisir le mot de passe PostgreSQL
+cp .env.example .env      # puis choisir les mots de passe Grafana et PostgreSQL
 docker compose up -d
+docker compose ps         # 11 conteneurs "Up"
 ```
 
-Prometheus : <http://localhost:9090>. Sur la page *Status > Target health*, les 9 cibles doivent
-être « UP ».
+| Interface | Adresse | Accès |
+|---|---|---|
+| Grafana | <http://localhost:3000> | `admin` / mot de passe défini dans `.env` |
+| Prometheus | <http://localhost:9090> | — |
+
+Le tableau de bord « Supervision des serveurs critiques » s'ouvre directement comme page
+d'accueil de Grafana. Les ports ne sont publiés que sur `127.0.0.1`.
 
 Arrêt et nettoyage complet : `docker compose down -v`.
+
+## Le tableau de bord
+
+Le tableau de bord est versionné dans `grafana/dashboards/supervision-serveurs.json` et chargé
+automatiquement par provisioning. Il se lit de haut en bas :
+
+1. **Vue d'ensemble** : trois compteurs (services hors ligne, serveurs en surcharge CPU, disques
+   critiques), verts à 0 et rouges dès 1, et la liste des alertes en cours.
+2. **Utilisation CPU** : jauge par serveur et historique sur fond de zones colorées.
+3. **Espace disque** : jauge par partition, tableau détaillé (taille, espace libre, % utilisé) et historique.
+4. **Services critiques** : état EN LIGNE / HORS LIGNE, frise de disponibilité et détail des sondes.
+
+| Indicateur | Normal | Avertissement | Critique | Alerte |
+|---|---|---|---|---|
+| CPU | < 70 % | 70 à 85 % | > 85 % | > 85 % pendant 1 min |
+| Espace disque utilisé | < 80 % | 80 à 90 % | > 90 % (moins de 10 % libre) | > 90 % pendant 1 min |
+| Service | EN LIGNE | — | HORS LIGNE | dès le premier échec |
+
+Pourquoi ces valeurs :
+
+- **CPU** : 70 % laisse une marge pour absorber un pic ; au-delà de 85 % de façon prolongée, les
+  temps de réponse se dégradent.
+- **Disque** : 80 % laisse le temps d'agir (purge, extension) ; à 90 %, une petite partition peut
+  se remplir en quelques minutes avec des journaux ou une sauvegarde.
+- **Attente d'une minute** pour le CPU et le disque : un pic bref ne doit pas réveiller l'astreinte.
+  Pour un service, aucune attente : une coupure est signalée tout de suite.
+
+Côté interactivité :
+
+- la variable **Serveur** (sélection multiple) filtre tous les panneaux ;
+- le rafraîchissement est automatique toutes les 5 s ;
+- les tableaux se trient d'un clic sur l'en-tête ;
+- chaque panneau a une info-bulle qui explique ce qu'il mesure.
 
 ## Calcul des indicateurs
 
 Prometheus calcule chaque indicateur par une **règle d'enregistrement**
 (`prometheus/rules/serveurs.yml`). Quelle que soit la source, l'indicateur porte un nom unique et
-une étiquette `server`. Un tableau de bord peut ainsi afficher tous les serveurs dans un même panneau, avec les mêmes seuils.
+une étiquette `server`. Grafana affiche ainsi tous les serveurs dans un même panneau, avec les mêmes seuils.
 
 | Indicateur | Métrique | Calcul |
 |---|---|---|
@@ -73,3 +115,5 @@ Les sondes de `blackbox/blackbox.yml` vérifient chaque service depuis l'extéri
 | `node_exporter` de l'hôte ne démarre pas : *path / is mounted on / but it is not a shared or slave mount* | Docker Desktop refuse la propagation `rslave` sur la racine | Monter `/:/host:ro`, sans `rslave` |
 | CPU de l'hôte affiché à 80 % alors que la machine est au repos | Sous WSL2, le temps « idle » des vCPU n'est pas entièrement comptabilisé : la somme des modes ne fait que 8,6 s/s pour 16 vCPU. La formule classique `1 − idle` surestime donc le CPU | Calculer temps actif ÷ temps total compté, une formule qui reste juste même si des compteurs manquent |
 | Disque de l'hôte introuvable sur `/var/lib/docker` | Le disque de données de la VM Docker Desktop est monté sur `/var/lib` | Cibler `/var/lib` |
+| La frise de disponibilité affiche « 1+ » au lieu de « EN LIGNE » | Le mode de couleur « seuils » prend le pas sur les correspondances de valeurs | Retirer ce mode : les correspondances portent le texte et la couleur |
+| Tableau de bord modifié mais non rechargé | Les fichiers provisionnés depuis un dossier Windows ne sont pas relus à chaud | `docker compose restart grafana` (l'état des alertes est conservé) |
