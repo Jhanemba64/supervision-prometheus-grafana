@@ -1,0 +1,104 @@
+apiVersion: 1
+
+# Une règle par indicateur. Chaque règle est multi-dimensionnelle :
+# une alerte distincte par serveur (ou par service) qui franchit le seuil.
+# Les annotations utilisent .Labels / .Values (sans $) : le provisioning interpréterait $labels
+# comme une variable d'environnement.
+groups:
+  - orgId: 1
+    name: Seuils critiques
+    folder: Supervision
+    interval: 10s
+    rules:
+      - uid: cpu-critique
+        title: CPU critique
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: { from: 60, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: A
+              expr: server:cpu_usage:percent
+              instant: true
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [85] }
+        for: 1m
+        noDataState: OK
+        execErrState: Error
+        labels:
+          severite: critique
+          categorie: cpu
+        annotations:
+          summary: 'CPU critique sur {{ .Labels.server }}'
+          description: 'Utilisation CPU de {{ printf "%.0f" .Values.A.Value }} % depuis plus d''une minute (seuil critique : 85 %).'
+          __dashboardUid__: supervision-serveurs
+          __panelId__: "8"
+
+      - uid: disque-critique
+        title: Espace disque critique
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: { from: 60, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: A
+              expr: server:disk_usage:percent
+              instant: true
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [90] }
+        for: 1m
+        noDataState: OK
+        execErrState: Error
+        labels:
+          severite: critique
+          categorie: disque
+        annotations:
+          summary: 'Espace disque critique sur {{ .Labels.server }} ({{ .Labels.mountpoint }})'
+          description: 'Partition remplie à {{ printf "%.1f" .Values.A.Value }} % (seuil critique : 90 %, soit moins de 10 % libre).'
+          __dashboardUid__: supervision-serveurs
+          __panelId__: "12"
+
+      - uid: service-hors-ligne
+        title: Service hors ligne
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: { from: 60, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: A
+              expr: probe_success
+              instant: true
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: lt, params: [1] }
+        for: 0s
+        noDataState: NoData
+        execErrState: Error
+        labels:
+          severite: critique
+          categorie: service
+        annotations:
+          summary: 'Service hors ligne : {{ .Labels.service }} sur {{ .Labels.server }}'
+          description: 'La sonde {{ .Labels.module }} vers {{ .Labels.instance }} échoue.'
+          __dashboardUid__: supervision-serveurs
+          __panelId__: "15"

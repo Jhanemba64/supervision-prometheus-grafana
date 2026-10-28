@@ -1,0 +1,30 @@
+apiVersion: 1
+
+# Destinataire de démonstration : le conteneur alert-receiver journalise chaque notification.
+# En production : messagerie, Slack/Teams, PagerDuty...
+contactPoints:
+  - orgId: 1
+    name: Astreinte (webhook)
+    receivers:
+      - uid: astreinte-webhook
+        type: webhook
+        settings:
+          url: http://alert-receiver:8080/alertes
+          httpMethod: POST
+
+# Un groupe par règle et par serveur. Un groupe qui vient de notifier reste actif tant que
+# Grafana renvoie l'alerte résolue : une nouvelle alerte du même groupe attend alors le
+# prochain group_interval. D'où une route dédiée aux services, notifiés au plus vite.
+policies:
+  - orgId: 1
+    receiver: Astreinte (webhook)
+    group_by: [grafana_folder, alertname, server]
+    group_wait: 5s
+    group_interval: 30s
+    repeat_interval: 4h
+    routes:
+      - receiver: Astreinte (webhook)
+        object_matchers:
+          - [categorie, =, service]
+        group_wait: 1s
+        group_interval: 10s

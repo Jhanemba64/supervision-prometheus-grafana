@@ -1,0 +1,24 @@
+modules:
+  # Serveur web : la page d'accueil doit répondre en 2xx
+  http_2xx:
+    prober: http
+    timeout: 3s
+    http:
+      preferred_ip_protocol: ip4
+
+  # Base de données : le port PostgreSQL doit accepter les connexions
+  tcp_connect:
+    prober: tcp
+    timeout: 3s
+    tcp:
+      preferred_ip_protocol: ip4
+
+  # Cache : Redis doit répondre PONG à un PING (vérifie le protocole, pas seulement le port)
+  redis:
+    prober: tcp
+    timeout: 3s
+    tcp:
+      preferred_ip_protocol: ip4
+      query_response:
+        - send: "PING"
+        - expect: "^\\+PONG"
