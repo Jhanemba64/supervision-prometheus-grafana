@@ -1,0 +1,138 @@
+name: supervision
+
+# Agent posé sur chaque serveur simulé : il ne publie que les métriques de sa partition /data.
+x-agent: &agent
+  image: prom/node-exporter:v1.12.1
+  command:
+    - --collector.disable-defaults
+    - --collector.filesystem
+
+services:
+  # ---------- Serveurs critiques simulés (un conteneur = un serveur) ----------
+  srv-web-01:
+    image: nginx:1.30.6-alpine
+    container_name: srv-web-01
+    hostname: srv-web-01
+    cpus: 1.0
+    volumes:
+      - data-web:/data
+
+  srv-db-01:
+    image: postgres:18.6-alpine
+    container_name: srv-db-01
+    hostname: srv-db-01
+    cpus: 2.0
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD manquant dans .env}
+      PGDATA: /data/pgdata
+    volumes:
+      - data-db:/data
+
+  srv-cache-01:
+    image: redis:8.6.8-alpine
+    container_name: srv-cache-01
+    hostname: srv-cache-01
+    cpus: 0.5
+    command: ["redis-server", "--appendonly", "yes", "--dir", "/data"]
+    volumes:
+      - data-cache:/data
+
+  agent-web:
+    <<: *agent
+    volumes:
+      - data-web:/data:ro
+
+  agent-db:
+    <<: *agent
+    volumes:
+      - data-db:/data:ro
+
+  agent-cache:
+    <<: *agent
+    volumes:
+      - data-cache:/data:ro
+
+  # ---------- Collecte ----------
+  # Hôte Docker (machine physique qui porte les serveurs) : node_exporter complet
+  node-exporter:
+    image: prom/node-exporter:v1.12.1
+    command: ["--path.rootfs=/host"]
+    pid: host
+    volumes:
+      - /:/host:ro   # pas de rslave : Docker Desktop le refuse sur /
+
+  # CPU de chaque serveur, mesuré par cgroup (les conteneurs partagent le même noyau)
+  cadvisor:
+    image: ghcr.io/google/cadvisor:v0.60.6
+    privileged: true
+    devices:
+      - /dev/kmsg
+    command:
+      - --docker_only=true
+      - --housekeeping_interval=5s
+      - --enable_metrics=cpu,memory
+      - --store_container_labels=false
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
+
+  # Sondes de disponibilité des services (HTTP, TCP, protocole Redis)
+  blackbox:
+    image: prom/blackbox-exporter:v0.29.1
+    command: ["--config.file=/etc/blackbox/blackbox.yml"]
+    volumes:
+      - ./blackbox/blackbox.yml:/etc/blackbox/blackbox.yml:ro
+
+  prometheus:
+    image: prom/prometheus:v3.15.1
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=7d
+      - --web.enable-lifecycle
+    volumes:
+      - ./prometheus:/etc/prometheus:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "127.0.0.1:9090:9090"
+
+  # ---------- Visualisation et alertes ----------
+  grafana:
+    image: grafana/grafana:13.2.5
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD manquant dans .env}
+      GF_SERVER_ROOT_URL: http://localhost:3000
+      GF_USERS_DEFAULT_LANGUAGE: fr-FR
+      GF_USERS_DEFAULT_THEME: light
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/supervision-serveurs.json
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_NEWS_NEWS_FEED_ENABLED: "false"
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    ports:
+      - "127.0.0.1:3000:3000"
+    depends_on:
+      - prometheus
+
+  # Destinataire des notifications (simule l'outil d'astreinte) : journalise chaque alerte reçue
+  alert-receiver:
+    image: mendhak/http-https-echo:43
+    environment:
+      HTTP_PORT: 8080
+
+volumes:
+  # Partitions /data des serveurs : volumes tmpfs de taille fixe. Quand l'un est plein,
+  # les écritures échouent (ENOSPC) comme sur un vrai disque.
+  data-web:
+    driver_opts: { type: tmpfs, device: tmpfs, o: "size=256m" }
+  data-db:
+    driver_opts: { type: tmpfs, device: tmpfs, o: "size=512m" }
+  data-cache:
+    driver_opts: { type: tmpfs, device: tmpfs, o: "size=256m" }
+  prometheus-data:
+  grafana-data:

@@ -1,0 +1,33 @@
+# Règles d'enregistrement : un même nom de métrique par indicateur, quelle que soit la source,
+# pour que Grafana affiche tous les serveurs dans un seul panneau avec les mêmes seuils.
+groups:
+  - name: serveurs
+    interval: 5s
+    rules:
+      # CPU d'un serveur simulé, en % des vCPU qui lui sont alloués (quota cgroup)
+      - record: server:cpu_usage:percent
+        expr: |
+          100 * sum by (server) (rate(container_cpu_usage_seconds_total{server!=""}[1m]))
+            / on (server) (
+                max by (server) (container_spec_cpu_quota{server!=""})
+              / max by (server) (container_spec_cpu_period{server!=""})
+            )
+
+      # CPU de l'hôte Docker, en % de tous ses cœurs. Temps actif / temps total compté, et non
+      # « 1 - idle » : sous WSL2 le temps idle des vCPU n'est pas entièrement comptabilisé.
+      - record: server:cpu_usage:percent
+        expr: |
+          100 * sum by (server) (rate(node_cpu_seconds_total{job="node-host", mode!~"idle|iowait"}[1m]))
+              / sum by (server) (rate(node_cpu_seconds_total{job="node-host"}[1m]))
+
+      # Occupation de la partition /data de chaque serveur
+      - record: server:disk_usage:percent
+        expr: |
+          100 * (1 - node_filesystem_avail_bytes{job="node-servers", mountpoint="/data"}
+                   / node_filesystem_size_bytes{job="node-servers", mountpoint="/data"})
+
+      # Occupation du disque de données de l'hôte Docker (images, volumes, conteneurs)
+      - record: server:disk_usage:percent
+        expr: |
+          100 * (1 - node_filesystem_avail_bytes{job="node-host", mountpoint="/var/lib"}
+                   / node_filesystem_size_bytes{job="node-host", mountpoint="/var/lib"})
